@@ -1,3 +1,6 @@
 pyodbc
 faker
 dotenv
+crewai
+crewai_tools[mcp]
+mcp
