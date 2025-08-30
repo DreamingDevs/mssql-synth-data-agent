@@ -25,7 +25,7 @@ load_dotenv()
 
 # Configuration constants
 DATABASE_NAME = os.getenv('DB_NAME')
-MCP_SERVER_PATH = "02-mcp-server/MssqlMcp/bin/debug/net9.0/MssqlMcp.dll"
+MCP_SERVER_PATH = "02-mcp-server/MssqlMcp/bin/Debug/net9.0/MssqlMcp.dll"
 MCP_CONNECTION_TIMEOUT = 60
 
 # Azure OpenAI configuration
@@ -104,6 +104,24 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     )
     print("✅ Data Statistics Agent created")
 
+    # Agent for validating row counts against actual database values
+    row_count_validator_agent = Agent(
+        role="Database Row Count Validator",
+        goal=f"Validate row count accuracy by comparing reported counts against actual database values for {DATABASE_NAME} tables using MSSQL MCP tools ONLY.",
+        backstory="Specialized in data validation and accuracy verification using MSSQL MCP tools to ensure row count integrity. Never accepts unverified data.",
+        tools=mcp_tools,
+        verbose=True,
+        tools_only=True,
+        llm=f"azure/{AZURE_DEPLOYMENT}",
+        llm_params={
+            "api_key": AZURE_API_KEY,
+            "api_base": AZURE_API_BASE,
+            "api_version": AZURE_API_VERSION,
+            **LLM_PARAMS
+        },
+    )
+    print("✅ Row Count Validator Agent created")
+
     # Create specific tasks with clear descriptions
     print("\n📋 Setting up analysis tasks...")
     
@@ -155,34 +173,89 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     )
     print("✅ Statistics Analysis Task configured")
 
+    row_count_validation_task = Task(
+        description=f"""Validate the accuracy of row counts from the previous statistics task by:
+        1. Taking the table names and reported row_count values from the previous task
+        2. For each table, execute ReadData tool with SQL: "SELECT COUNT(*) as actual_count FROM [schema].[table_name]"
+        3. Compare the reported row_count with the actual_count from the database
+        4. Return true if ALL row counts are accurate, false if ANY are inaccurate.""",
+        expected_output="""Simple boolean result:
+        {
+          "validation_passed": true|false,
+          "message": "All row counts are accurate" or "Some row counts are inaccurate"
+        }""",
+        agent=row_count_validator_agent,
+        context=[statistics_analysis_task]  # Explicitly depend on the statistics task's output
+    )
+    print("✅ Row Count Validation Task configured")
+
     # Create and configure the analysis crew
     print("\n🎯 Assembling database analysis crew...")
     database_analysis_crew = Crew(
-        agents=[schema_analyzer_agent, data_statistics_agent],
-        tasks=[schema_analysis_task, statistics_analysis_task],
+        agents=[schema_analyzer_agent, data_statistics_agent, row_count_validator_agent],
+        tasks=[schema_analysis_task, statistics_analysis_task, row_count_validation_task],
         process=Process.sequential
     )
     print("✅ Database Analysis Crew assembled")
     print(f"👥 Crew members: {len(database_analysis_crew.agents)} agents")
     print(f"📝 Total tasks: {len(database_analysis_crew.tasks)} tasks")
 
-    # Execute the analysis
-    print("\n🚀 Starting database analysis execution...")
+    # Execute the analysis with retry loop
+    print("\n🚀 Starting database analysis execution with validation loop...")
     print("📋 Task execution order:")
     print("   1️⃣ Schema Analysis Task (extract complete table structures)")
-    print("   2️⃣ Statistics Analysis Task (add ONLY row_count to existing schema)")
-    print("   ⚠️  Note: Task 2 takes Task 1's exact JSON and adds row_count field only")
-    print("   🔍 Task 2 will use SELECT COUNT(*) queries for accurate row counts")
+    print("   2️⃣ Statistics Analysis Task (extract row counts for each table)")
+    print("   3️⃣ Row Count Validation Task (validate reported vs actual counts)")
+    print("   🔄 If validation fails, process will retry from step 2")
+    print("   🔍 Validation uses direct SELECT COUNT(*) queries for verification")
+    
+    max_retries = 3
+    retry_count = 0
+    validation_passed = False
     
     try:
-        analysis_result = database_analysis_crew.kickoff()
-        print("\n✅ Database analysis completed successfully!")
+        while not validation_passed and retry_count < max_retries:
+            retry_count += 1
+            print(f"\n🔄 Attempt {retry_count}/{max_retries}")
+            
+            # Execute the crew
+            analysis_result = database_analysis_crew.kickoff()
+            
+            # Check if validation passed by examining the result
+            if "validation_passed" in str(analysis_result):
+                import json
+                
+                # Extract the validation result from the final output
+                try:
+                    # Look for validation_passed in the output
+                    result_json = json.loads(str(analysis_result))
+                    validation_passed = result_json.get("validation_passed", False)
+                    
+                    if validation_passed:
+                        print("\n✅ Validation PASSED - All row counts are accurate!")
+                        break
+                    else:
+                        print(f"\n❌ Validation FAILED - Retrying... (Attempt {retry_count}/{max_retries})")
+                        if retry_count < max_retries:
+                            print("🔄 Restarting statistics analysis task...")
+                        else:
+                            print("⚠️  Maximum retries reached. Final results may contain inaccuracies.")
+                except Exception as parse_error:
+                    print(f"⚠️  Could not parse validation result: {parse_error}")
+                    validation_passed = False  # Assume failed if can't parse
+            else:
+                print("⚠️  No validation result found in output")
+                validation_passed = False  # Assume failed if no validation found
+        
+        print("\n✅ Database analysis process completed!")
         print("=" * 60)
         print("📊 FINAL ANALYSIS RESULTS:")
         print("=" * 60)
         print(analysis_result)
         print("=" * 60)
-        print("✅ Analysis complete - Row counts should now be accurate!")
+        print(f"🔢 Total attempts: {retry_count}")
+        print(f"✅ Validation status: {'PASSED' if validation_passed else 'FAILED'}")
+        
     except Exception as e:
         print(f"\n❌ Error during analysis execution: {str(e)}")
         print("💡 Check that the MCP server is running and database is accessible")
