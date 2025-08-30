@@ -71,8 +71,8 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     # Agent for analyzing database schema structure
     schema_analyzer_agent = Agent(
         role="Database Schema Analyst",
-        goal=f"Analyze and extract all column information from {DATABASE_NAME} database tables using MSSQL MCP tools only. Never invent or assume data.",
-        backstory="Specialized in database schema analysis using MSSQL MCP tools exclusively for accurate data retrieval",
+        goal=f"Extract schema information from {DATABASE_NAME} database tables including detailed column properties and foreign key relationships using MSSQL MCP tools ONLY. ",
+        backstory="Specialized in comprehensive database schema and metadata extraction using MSSQL MCP tools ONLY. Never invent or assume data. ",
         tools=mcp_tools,
         verbose=True,
         tools_only=True,
@@ -89,8 +89,8 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     # Agent for analyzing table row counts and data statistics
     data_statistics_agent = Agent(
         role="Database Statistics Analyst",
-        goal=f"Extract accurate row count for each table in {DATABASE_NAME} database tables using MSSQL MCP tools only. Use only real data from the database - never invent, assume, or modify existing schema information.",
-        backstory="Specialized in database analysis using MSSQL MCP tools exclusively for accurate data retrieval",
+        goal=f"Extract the number of rows as row_count for all {DATABASE_NAME} database tables using MSSQL MCP tools ONLY. ",
+        backstory="Specialized in querying database for accurate row counts using MSSQL MCP tools ONLY. Never invent or assume data. ",
         tools=mcp_tools,
         verbose=True,
         tools_only=True,
@@ -108,15 +108,48 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     print("\n📋 Setting up analysis tasks...")
     
     schema_analysis_task = Task(
-        description=f"Analyze and list all columns with their data types for all tables in the {DATABASE_NAME} database.",
-        expected_output="JSON format",
+        description=f"""Extract schema information for all tables in the {DATABASE_NAME} database. For each table, retrieve:
+        1. Table schema and name
+        2. All columns with properties: name, data type, length, precision, scale, nullable
+        3. All foreign key relationships with constraint names, columns, referenced tables and columns""",
+        expected_output="""JSON format with this exact structure:
+        {
+          "tables": [
+            {
+              "schema": "SchemaName",
+              "name": "TableName",
+              "columns": [
+                {
+                  "name": "ColumnName",
+                  "type": "data_type",
+                  "length": 4,
+                  "precision": 10,
+                  "scale": 0,
+                  "nullable": true|false
+                }
+              ],
+              "foreignKeys": [
+                {
+                  "name": "FK_ConstraintName",
+                  "column": "LocalColumn",
+                  "referencedTable": "ReferencedTable",
+                  "referencedColumn": "ReferencedColumn"
+                }
+              ]
+            }
+          ]
+        }""",
         agent=schema_analyzer_agent
     )
     print("✅ Schema Analysis Task configured")
 
     statistics_analysis_task = Task(
-        description=f"Extract the row count as row_count for each table in the {DATABASE_NAME} database.",
-        expected_output="JSON format with schema and row_count",
+        description=f"Extract the number of rows as row_count for each table in the {DATABASE_NAME} database. ",
+        expected_output="""Take the previous task's JSON and add row_count field to each table:
+        [{
+            "name": "tableName",
+            "row_count": 123
+        }]""",
         agent=data_statistics_agent,
         context=[schema_analysis_task]  # Explicitly depend on the first task's output
     )
@@ -136,9 +169,10 @@ with MCPServerAdapter(mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIME
     # Execute the analysis
     print("\n🚀 Starting database analysis execution...")
     print("📋 Task execution order:")
-    print("   1️⃣ Schema Analysis Task (extract table structures)")
-    print("   2️⃣ Statistics Analysis Task (add row counts to schema data)")
-    print("   ⚠️  Note: Task 2 depends on Task 1's output to prevent hallucinations")
+    print("   1️⃣ Schema Analysis Task (extract complete table structures)")
+    print("   2️⃣ Statistics Analysis Task (add ONLY row_count to existing schema)")
+    print("   ⚠️  Note: Task 2 takes Task 1's exact JSON and adds row_count field only")
+    print("   🔍 Task 2 will use SELECT COUNT(*) queries for accurate row counts")
     
     try:
         analysis_result = database_analysis_crew.kickoff()
