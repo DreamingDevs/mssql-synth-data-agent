@@ -1,14 +1,15 @@
 """
 SQL Schema Analyzer Agent
 
-This module creates a multi-agent system for analyzing SQL Server database schema.
+This module implements a multi-agent system for analyzing SQL Server database schemas.
 It uses CrewAI with MSSQL MCP tools to:
-1. Extract database schema and table information
-3. Validate the table and schema information
 
-The system uses two specialized agents:
-- Schema Analyst Agent: Focuses on database structure analysis
-- Schema Validator Agent: Focuses on validating the schema analysis
+1. Extract database schema and table information
+2. Validate the extracted schema information against the database
+
+Agents:
+- **Database Analyst Agent**: Extracts schema and table names.
+- **Schema Validator Agent**: Validates extracted schema for correctness and completeness.
 """
 
 from crewai import LLM, Agent, Task, Crew, Process
@@ -45,8 +46,16 @@ mcp_server_parameters = StdioServerParameters(
 
 print("⚙️ MCP Server parameters configured successfully")
 
+
 def normalize_task_output(task_output):
-    """Convert TaskOutput/dict/str into clean string."""
+    """Normalize raw task output into a clean string.
+
+    Args:
+        task_output: Output object which may be TaskOutput, dict, or str.
+
+    Returns:
+        str: A normalized string representation of the output.
+    """
     if hasattr(task_output, "raw") and isinstance(task_output.raw, str):
         return task_output.raw.strip()
     if isinstance(task_output, dict):
@@ -55,8 +64,16 @@ def normalize_task_output(task_output):
         return task_output.strip()
     return str(task_output)
 
+
 def parse_validator_output(task_output_str):
-    """Extract the validator JSON from mixed output."""
+    """Parse validator task output to extract JSON.
+
+    Args:
+        task_output_str (str): Raw output string containing JSON.
+
+    Returns:
+        dict: Parsed JSON object if found, otherwise {"raw_output": <original_str>}.
+    """
     try:
         # Find first JSON block
         match = re.search(r"\{[\s\S]*\}", task_output_str)
@@ -66,8 +83,18 @@ def parse_validator_output(task_output_str):
     except json.JSONDecodeError:
         return {"raw_output": task_output_str}
 
+
 def collect_agent_outputs(tasks):
-    """Collect Analyst and Validator outputs from crew tasks."""
+    """Collect outputs from Analyst and Validator tasks.
+
+    Args:
+        tasks (list[Task]): List of crew tasks executed.
+
+    Returns:
+        tuple:
+            - analyst_result (str|None): Raw schema analysis JSON string.
+            - validator_result (dict): Parsed validator JSON or raw output.
+    """
     analyst_result, validator_result = None, {}
 
     for task in tasks:
@@ -86,8 +113,24 @@ def collect_agent_outputs(tasks):
 
     return analyst_result, validator_result
 
+
 def execute_analysis_with_retry(crew, max_retries=3):
-    """Execute database analysis with retry logic, saving Analyst & Validator outputs separately."""
+    """Run schema analysis with retry logic.
+
+    Runs Analyst and Validator tasks, retries if validation fails,
+    and feeds validator feedback back into the Analyst task.
+
+    Args:
+        crew (Crew): The Crew object with Analyst and Validator tasks.
+        max_retries (int): Maximum number of attempts before giving up.
+
+    Returns:
+        tuple:
+            - validator_result (dict): Final validator output.
+            - analyst_result (str): Final analyst output.
+            - validation_passed (bool): Whether schema validation succeeded.
+            - attempt_count (int): Number of attempts executed.
+    """
     print(f"\n🚀 Starting analysis with up to {max_retries} attempts...")
 
     base_analysis_description = crew.tasks[0].description
@@ -101,17 +144,26 @@ def execute_analysis_with_retry(crew, max_retries=3):
             analyst_result, validator_result = collect_agent_outputs(crew.tasks)
 
             # Save latest results
-            final_analyst_result, final_validator_result = analyst_result, validator_result
+            final_analyst_result, final_validator_result = (
+                analyst_result,
+                validator_result,
+            )
             validation_passed = validator_result.get("validation_passed", False)
 
             if validation_passed:
                 print("✅ Validation PASSED - Schema is accurate!")
-                return final_validator_result, final_analyst_result, validation_passed, attempt
+                return (
+                    final_validator_result,
+                    final_analyst_result,
+                    validation_passed,
+                    attempt,
+                )
             else:
                 print(f"❌ Validation FAILED on attempt {attempt}")
                 print(f"📋 Validator feedback: {validator_result}")
 
-                # Feed back validator result for retry
+                # Feed back validator result for retry by updating Analyst task description.
+                # This lets the Analyst improve its next attempt using validator feedback.
                 crew.tasks[0].description = (
                     f"{base_analysis_description}\n\n"
                     f"⚠️ Previous validation results:\n{validator_result}\n"
@@ -121,7 +173,9 @@ def execute_analysis_with_retry(crew, max_retries=3):
                 if attempt < max_retries:
                     print("🔄 Retrying with validator feedback...")
                 else:
-                    print("⚠️ Maximum retries reached. Final results may contain inaccuracies.")
+                    print(
+                        "⚠️ Maximum retries reached. Final results may contain inaccuracies."
+                    )
 
         except Exception as e:
             print(f"❌ Error during attempt {attempt}: {str(e)}")
@@ -132,14 +186,16 @@ def execute_analysis_with_retry(crew, max_retries=3):
     return final_validator_result, final_analyst_result, False, max_retries
 
 
-def print_execution_summary(validator_result, analyst_result, validation_passed, attempt_count):
-    """Print a summary of the execution results.
+def print_execution_summary(
+    validator_result, analyst_result, validation_passed, attempt_count
+):
+    """Print a formatted summary of analysis execution.
 
     Args:
-        validator_result: Output from the validator agent
-        analyst_result:  Output from the analyst agent
-        validation_passed: Whether validation ultimately passed
-        attempt_count: Number of attempts made
+        validator_result (dict): Validator agent output.
+        analyst_result (str): Analyst agent output.
+        validation_passed (bool): Whether validation ultimately passed.
+        attempt_count (int): Number of attempts made.
     """
     print("\n" + "=" * 60)
     print("📊 EXECUTION SUMMARY")
@@ -159,18 +215,18 @@ def print_execution_summary(validator_result, analyst_result, validation_passed,
     print("=" * 60)
 
 
-
 print("🔌 Connecting to MCP Server...")
 
 with MCPServerAdapter(
     mcp_server_parameters, connect_timeout=MCP_CONNECTION_TIMEOUT
 ) as mcp_tools:
     print("✅ MCP Server connection established")
-    
+
     available_tools = [tool.name for tool in mcp_tools]
     tool_list_str = ", ".join(available_tools)
     print(f"🛠️ Available MCP tools: {tool_list_str}")
 
+    # 🧑‍💻 Analyst Agent: Extracts schema + table names
     database_analyst_agent = Agent(
         role="Expert Database Analyst",
         goal=f"""Extract all schema and table names from {DATABASE_NAME}.
@@ -190,6 +246,7 @@ with MCPServerAdapter(
     )
     print("✅ Database Analyst Agent created")
 
+    # 🔍 Validator Agent: Validates extracted schema for correctness
     validator_agent = Agent(
         role="Expert Database Validator",
         goal=f"""Validate the extracted schema and table names for {DATABASE_NAME}.
@@ -209,6 +266,7 @@ with MCPServerAdapter(
     )
     print("✅ Schema Validator Agent created")
 
+    # Task 1: Extract all schema + table names
     database_analysis_task = Task(
         description=f"""Query {DATABASE_NAME} and return all schema and table names.
 
@@ -225,6 +283,7 @@ with MCPServerAdapter(
     )
     print("✅ Schema Analysis Task configured")
 
+    # Task 2: Validate the extracted schema list
     validation_task = Task(
         description=f"""Validate the schema and table list extracted from {DATABASE_NAME}.
 
@@ -252,7 +311,7 @@ with MCPServerAdapter(
 
     print("✅ Schema Validation Task configured")
 
-    # Assemble crew
+    # Crew = Analyst + Validator running sequentially
     database_analysis_crew = Crew(
         agents=[database_analyst_agent, validator_agent],
         tasks=[database_analysis_task, validation_task],
@@ -264,10 +323,12 @@ with MCPServerAdapter(
 
     # Execute with retry
     try:
-        validation_result, analyst_result, validation_success, total_attempts  = execute_analysis_with_retry(
-            crew=database_analysis_crew, max_retries=3
+        validation_result, analyst_result, validation_success, total_attempts = (
+            execute_analysis_with_retry(crew=database_analysis_crew, max_retries=3)
         )
-        print_execution_summary(validation_result, analyst_result, validation_success, total_attempts)
+        print_execution_summary(
+            validation_result, analyst_result, validation_success, total_attempts
+        )
 
     except Exception as e:
         print(f"\n❌ Fatal error during analysis execution: {str(e)}")
