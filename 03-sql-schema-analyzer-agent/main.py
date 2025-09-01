@@ -1,7 +1,7 @@
 """
 SQL Schema Analyzer Agent
 
-This module creates a multi-agent system for analyzing SQL Server database schemas.
+This module creates a multi-agent system for analyzing SQL Server database schema.
 It uses CrewAI with MSSQL MCP tools to:
 1. Extract database schema and table information
 3. Validate the table and schema information
@@ -14,7 +14,7 @@ The system uses two specialized agents:
 from crewai import LLM, Agent, Task, Crew, Process
 from crewai_tools import MCPServerAdapter
 from mcp import StdioServerParameters
-import os, sys
+import os, sys, json, re
 from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,23 +27,7 @@ load_dotenv()
 DATABASE_NAME = os.getenv("DB_NAME")
 MCP_SERVER_PATH = "02-mcp-server/MssqlMcp/bin/Debug/net9.0/MssqlMcp.dll"
 MCP_CONNECTION_TIMEOUT = 60
-
-# LLM parameters for deterministic responses
-LLM_PARAMS = {
-    "temperature": 0.0,  # Zero temperature for maximum determinism
-    "max_tokens": 4000,  # Control output length for consistency
-    "top_p": 0.05,  # Very low top_p for highly focused, predictable responses
-    "frequency_penalty": 0.0,  # No frequency penalty for consistent terminology
-    "presence_penalty": 0.0,  # No presence penalty for consistent structure
-}
-
-llm_cfg = LLM(
-    model=f"azure/{os.getenv('AZURE_OPENAI_DEPLOYMENT')}",
-    api_key=os.getenv("AZURE_API_KEY"),
-    api_base=os.getenv("AZURE_API_BASE"),
-    api_version=os.getenv("AZURE_API_VERSION"),
-    **LLM_PARAMS,
-)
+llm_cfg = Config.get_llm()
 
 print("🚀 Starting SQL Schema Analyzer Agent...")
 print(f"📊 Target Database: {DATABASE_NAME}")
@@ -61,77 +45,83 @@ mcp_server_parameters = StdioServerParameters(
 
 print("⚙️ MCP Server parameters configured successfully")
 
+def normalize_task_output(task_output):
+    """Convert TaskOutput/dict/str into clean string."""
+    if hasattr(task_output, "raw") and isinstance(task_output.raw, str):
+        return task_output.raw.strip()
+    if isinstance(task_output, dict):
+        return json.dumps(task_output)
+    if isinstance(task_output, str):
+        return task_output.strip()
+    return str(task_output)
 
-def extract_validation_result(crew_result):
-    """Extract validation status from crew execution result.
-
-    Args:
-        crew_result: The result from crew.kickoff()
-
-    Returns:
-        bool: True if validation passed, False otherwise
-    """
+def parse_validator_output(task_output_str):
+    """Extract the validator JSON from mixed output."""
     try:
-        result_str = str(crew_result)
-        if "validation_passed" not in result_str:
-            print("⚠️  No validation result found in crew output")
-            return False
+        # Find first JSON block
+        match = re.search(r"\{[\s\S]*\}", task_output_str)
+        if match:
+            return json.loads(match.group(0))
+        return {"raw_output": task_output_str}
+    except json.JSONDecodeError:
+        return {"raw_output": task_output_str}
 
-        # Try to parse as JSON first
-        try:
-            import json
+def collect_agent_outputs(tasks):
+    """Collect Analyst and Validator outputs from crew tasks."""
+    analyst_result, validator_result = None, {}
 
-            result_json = json.loads(result_str)
-            return result_json.get("validation_passed", False)
-        except json.JSONDecodeError:
-            # Fallback to regex parsing
-            import re
+    for task in tasks:
+        agent_role = getattr(task.agent, "role", "")
+        task_output = getattr(task, "output", None)
 
-            validation_match = re.search(
-                r'"validation_passed":\s*(true|false)', result_str
-            )
-            if validation_match:
-                return validation_match.group(1).lower() == "true"
-            return False
+        if not task_output:
+            continue
 
-    except Exception as e:
-        print(f"⚠️  Error parsing validation result: {e}")
-        return False
+        task_str = normalize_task_output(task_output)
 
+        if "Analyst" in agent_role:
+            analyst_result = task_str
+        elif "Validator" in agent_role:
+            validator_result = parse_validator_output(task_str)
+
+    return analyst_result, validator_result
 
 def execute_analysis_with_retry(crew, max_retries=3):
-    """Execute database analysis with retry logic for validation failures.
-
-    Args:
-        crew: The CrewAI crew to execute
-        max_retries: Maximum number of retry attempts
-
-    Returns:
-        tuple: (final_result, validation_passed, attempt_count)
-    """
+    """Execute database analysis with retry logic, saving Analyst & Validator outputs separately."""
     print(f"\n🚀 Starting analysis with up to {max_retries} attempts...")
+
+    base_analysis_description = crew.tasks[0].description
+    final_analyst_result, final_validator_result, validation_passed = None, None, False
 
     for attempt in range(1, max_retries + 1):
         print(f"\n🔄 Attempt {attempt}/{max_retries}")
 
         try:
-            # Execute the crew
-            result = crew.kickoff()
+            # --- Collect outputs ---
+            analyst_result, validator_result = collect_agent_outputs(crew.tasks)
 
-            # Check validation status
-            validation_passed = extract_validation_result(result)
+            # Save latest results
+            final_analyst_result, final_validator_result = analyst_result, validator_result
+            validation_passed = validator_result.get("validation_passed", False)
 
             if validation_passed:
                 print("✅ Validation PASSED - Schema is accurate!")
-                return result, True, attempt
+                return final_validator_result, final_analyst_result, validation_passed, attempt
             else:
                 print(f"❌ Validation FAILED on attempt {attempt}")
+                print(f"📋 Validator feedback: {validator_result}")
+
+                # Feed back validator result for retry
+                crew.tasks[0].description = (
+                    f"{base_analysis_description}\n\n"
+                    f"⚠️ Previous validation results:\n{validator_result}\n"
+                    f"Use this feedback to improve the next query."
+                )
+
                 if attempt < max_retries:
-                    print("🔄 Retrying with fresh analysis...")
+                    print("🔄 Retrying with validator feedback...")
                 else:
-                    print(
-                        "⚠️  Maximum retries reached. Final results may contain inaccuracies."
-                    )
+                    print("⚠️ Maximum retries reached. Final results may contain inaccuracies.")
 
         except Exception as e:
             print(f"❌ Error during attempt {attempt}: {str(e)}")
@@ -139,15 +129,15 @@ def execute_analysis_with_retry(crew, max_retries=3):
                 raise
             print("🔄 Retrying due to execution error...")
 
-    # If we get here, all retries failed validation
-    return result, False, max_retries
+    return final_validator_result, final_analyst_result, False, max_retries
 
 
-def print_execution_summary(result, validation_passed, attempt_count):
+def print_execution_summary(validator_result, analyst_result, validation_passed, attempt_count):
     """Print a summary of the execution results.
 
     Args:
-        result: The final crew execution result
+        validator_result: Output from the validator agent
+        analyst_result:  Output from the analyst agent
         validation_passed: Whether validation ultimately passed
         attempt_count: Number of attempts made
     """
@@ -156,14 +146,18 @@ def print_execution_summary(result, validation_passed, attempt_count):
     print("=" * 60)
     print(f"🔢 Total attempts: {attempt_count}")
     print(f"✅ Validation status: {'PASSED' if validation_passed else 'FAILED'}")
-    print(
-        f"🎯 Quality assurance: {'High confidence' if validation_passed else 'Low confidence'}"
-    )
+
+    print("\n" + "=" * 60)
+    print("🧑‍💻 ANALYST RESULT")
     print("=" * 60)
-    print("📋 FINAL ANALYSIS RESULTS:")
+    print(analyst_result)
+
+    print("\n" + "=" * 60)
+    print("📋 VALIDATOR RESULT")
     print("=" * 60)
-    print(result)
+    print(validator_result)
     print("=" * 60)
+
 
 
 print("🔌 Connecting to MCP Server...")
@@ -179,10 +173,9 @@ with MCPServerAdapter(
 
     database_analyst_agent = Agent(
         role="Expert Database Analyst",
-        goal=f"""Extract all schemas and tables from {DATABASE_NAME}.
+        goal=f"""Extract all schema and table names from {DATABASE_NAME}.
         First attempt MUST use the provided MSSQL MCP tools, which are {tool_list_str}.
-        If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query
-        via the MCP query execution tool.
+        If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query via the MCP query execution tool.
         Output strictly as JSON (no explanations, no comments). """,
         backstory=f"""ROLE: Expert SQL Server schema extractor.
         WORKFLOW:
@@ -199,16 +192,16 @@ with MCPServerAdapter(
 
     validator_agent = Agent(
         role="Expert Database Validator",
-        goal=f"""Validate the extracted schemas and tables for {DATABASE_NAME}.
+        goal=f"""Validate the extracted schema and table names for {DATABASE_NAME}.
         First attempt MUST use the MSSQL MCP tools, which are {tool_list_str}.
-        If information is incomplete, run a custom T-SQL query against INFORMATION_SCHEMA.TABLES
-        using the MCP query execution tool.
+        If information is incomplete, run a custom T-SQL query against INFORMATION_SCHEMA.TABLES using the MCP query execution tool.
         Return only JSON in the required format.""",
-        backstory=f"""ROLE: SQL Server auditor who verifies schema accuracy.
+        backstory=f"""ROLE: SQL Server auditor.
         WORKFLOW:
         1. Always attempt to use MSSQL MCP tools first ({tool_list_str}).
-        2. If they don’t return full details, fallback to INFORMATION_SCHEMA queries via MCP.
-        3. Return results ONLY as structured JSON, no extra text. """,
+        2. If they don’t return full details, fallback to INFORMATION_SCHEMA queries through MCP.
+        3. Never invent or assume missing details.
+        4. Return results ONLY as structured JSON, no extra text. """,
         tools=mcp_tools,
         tools_only=True,
         verbose=True,
@@ -217,15 +210,15 @@ with MCPServerAdapter(
     print("✅ Schema Validator Agent created")
 
     database_analysis_task = Task(
-        description=f"""Query {DATABASE_NAME} and return all schemas and table names.
+        description=f"""Query {DATABASE_NAME} and return all schema and table names.
 
         RULES:
-        1. Use these MCP tools first: {tool_list_str}.
+        1. First, use MCP tools: {tool_list_str}.
         2. If they don’t give the complete list, fallback to a direct T-SQL query against INFORMATION_SCHEMA.TABLES using MCP.
         3. Never assume or fabricate results.
         4. Output ONLY JSON in this format:
         [
-        {{ "schema": "schema_name", "table": "table_name" }}
+            {{ "schema": "schema_name", "table": "table_name" }}
         ] """,
         expected_output="""Strict JSON array of objects with 'schema' and 'table' keys only.""",
         agent=database_analyst_agent,
@@ -233,24 +226,23 @@ with MCPServerAdapter(
     print("✅ Schema Analysis Task configured")
 
     validation_task = Task(
-        description=f"""
-        Validate the schema and table list extracted from {DATABASE_NAME}.
+        description=f"""Validate the schema and table list extracted from {DATABASE_NAME}.
 
         RULES:
         1. First, use MCP tools: {tool_list_str}.
-        2. If needed, fallback to direct T-SQL queries against INFORMATION_SCHEMA.TABLES via MCP.
+        2. If they don’t give the complete list, fallback to direct T-SQL queries against INFORMATION_SCHEMA.TABLES using MCP.
         3. Never assume or fabricate issues.
         4. Output ONLY JSON in this format:
         {{
-        "validation_passed": true|false,
-        "issues": [
-            {{
-            "type": "missing_foreign_key|invalid_column|duplicate_table|other",
-            "table": "TableName",
-            "details": "Explanation of the issue"
-            }}
-        ],
-        "message": "<summary string>"
+            "validation_passed": true|false,
+            "issues": [
+                {{
+                "type": "missing_table|duplicate_table|missing_schema|other",
+                "table": "TableName",
+                "details": "Explanation of the issue"
+                }}
+            ],
+            "message": "<summary string>"
         }}
         """,
         expected_output="Strict JSON object with validation_passed, issues[], and message.",
@@ -272,10 +264,10 @@ with MCPServerAdapter(
 
     # Execute with retry
     try:
-        final_result, validation_success, total_attempts = execute_analysis_with_retry(
+        validation_result, analyst_result, validation_success, total_attempts  = execute_analysis_with_retry(
             crew=database_analysis_crew, max_retries=3
         )
-        print_execution_summary(final_result, validation_success, total_attempts)
+        print_execution_summary(validation_result, analyst_result, validation_success, total_attempts)
 
     except Exception as e:
         print(f"\n❌ Fatal error during analysis execution: {str(e)}")

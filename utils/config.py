@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from crewai import LLM
 
 # Load environment variables from .env file
 load_dotenv()
@@ -55,3 +56,24 @@ class Config:
         ])
         
         return ";".join(connection_parts) + ";"
+
+    @staticmethod
+    def get_llm_params():
+        # LLM parameters for deterministic responses
+        return {
+            "temperature": 0.0,  # Zero temperature for maximum determinism
+            "max_tokens": 4000,  # Control output length for consistency
+            "top_p": 0.05,  # Very low top_p for highly focused, predictable responses
+            "frequency_penalty": 0.0,  # No frequency penalty for consistent terminology
+            "presence_penalty": 0.0,  # No presence penalty for consistent structure
+        }
+
+    @staticmethod
+    def get_llm():
+        return LLM(
+                model=f"azure/{os.getenv('AZURE_OPENAI_DEPLOYMENT')}",
+                api_key=os.getenv("AZURE_API_KEY"),
+                api_base=os.getenv("AZURE_API_BASE"),
+                api_version=os.getenv("AZURE_API_VERSION"),
+                **Config.get_llm_params(),
+            )
