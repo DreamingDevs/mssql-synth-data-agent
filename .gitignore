@@ -126,3 +126,5 @@ ehthumbs.db
 
 bin
 obj
+
+*.json

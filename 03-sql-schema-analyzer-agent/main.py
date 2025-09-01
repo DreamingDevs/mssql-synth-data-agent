@@ -140,6 +140,8 @@ def execute_analysis_with_retry(crew, max_retries=3):
         print(f"\n🔄 Attempt {attempt}/{max_retries}")
 
         try:
+            crew.kickoff()
+
             # --- Collect outputs ---
             analyst_result, validator_result = collect_agent_outputs(crew.tasks)
 
@@ -323,9 +325,17 @@ with MCPServerAdapter(
 
     # Execute with retry
     try:
-        validation_result, analyst_result, validation_success, total_attempts = (
-            execute_analysis_with_retry(crew=database_analysis_crew, max_retries=3)
-        )
+        validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=database_analysis_crew, max_retries=3)
+
+        # --- Save Analyst output (tables) into tables.json ---
+        if validation_success and analyst_result:
+            with open("tables.json", "w") as f:
+                tables_json = json.loads(analyst_result)
+                json.dump(tables_json, f, indent=2)
+            print("💾 Saved extracted tables to tables.json")
+        else:
+            print("⚠️ Validation failed hence no tables.json saved.")
+
         print_execution_summary(
             validation_result, analyst_result, validation_success, total_attempts
         )

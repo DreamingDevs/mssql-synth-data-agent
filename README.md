@@ -9,6 +9,7 @@
 - [🐍 Python Virtual Environment](#-create-a-virtual-environment-and-install-packages)
 - [🛢️ Step 1: SQL Server in Docker](#️-step-1-run-sql-server-in-docker-on-macos-and-set-up-the-source-db)
 - [⚙️ Step 2: MCP Server for SQL Server](#️-step-2-setup-a-mcp-server-for-sql-server)
+- [🗂️ Step 3: Fetch Table Names from Database](#️-step-3-fetch-table-names-from-database)
 
 ## ✨ Key Features
 - AI-driven **autonomous data generation**
@@ -97,8 +98,8 @@ Follow these steps to set up a lightweight SQL Server environment on macOS:
 Download Microsoft SQL MCP Server (Dotnet version) from [Azure SQL AI Samples](https://github.com/Azure-Samples/SQL-AI-samples/tree/main/MssqlMcp) into `02-mcp-server` folder.
 
 NOTE:
-- I have updated `02-mcp-server/MssqlMcp/McsqlMcp.csproj` file with <TargetFramework> version to `net9.0`
-- I have removed few unwanted files (like .gitignore, .editorconfig etc. ) from the source Git repo.
+- Updated `02-mcp-server/MssqlMcp/McsqlMcp.csproj` file with <TargetFramework> version to `net9.0`
+- Removed few unwanted files (like .gitignore, .editorconfig etc. ) from the source Git repo.
 
 Install Dotnet SDK 9
 ```bash
@@ -114,3 +115,38 @@ dotnet build
 ```
 
 Verify `MssqlMcp.dll` should be created under `02-mcp-server/MssqlMcp/bin/Debug/net9.0/`.
+
+## 🗂️ Step 3: Fetch Table Names from Database
+
+Fetch all table and schema names using the **Schema Analyzer Agent**.
+
+Run the schema analyzer script:
+```bash
+python 03-schema-analyzer/main.py
+```
+
+The agent will:
+- Connect to the running MCP Server.
+- Use the Database Analyst Agent to extract table names and schemas.
+- Use the Validator Agent to verify the correctness of the extracted schema.
+- Save the results to tables.json.
+
+Example output:
+```json
+[
+   { "schema": "dbo", "table": "Genres" },
+   { "schema": "dbo", "table": "Movies" },
+   { "schema": "dbo", "table": "Reviews" }
+]
+```
+
+Validation Output:
+```json
+{
+  "validation_passed": true,
+  "issues": [],
+  "message": "All expected tables and schema definitions exist with proper primary and foreign key constraints."
+}
+```
+
+If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
