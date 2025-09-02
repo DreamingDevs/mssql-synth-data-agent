@@ -150,3 +150,6 @@ Validation Output:
 ```
 
 If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
+
+<img src="images/step2.png" alt="step-2" width="50%" height="50%"/>
+
