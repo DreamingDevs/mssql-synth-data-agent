@@ -122,7 +122,7 @@ Fetch all table and schema names using the **Schema Analyzer Agent**.
 
 Run the schema analyzer script:
 ```bash
-python 03-schema-analyzer/main.py
+python 03-sql-schema-basic-analyzer-agent/main.py
 ```
 
 The agent will:
