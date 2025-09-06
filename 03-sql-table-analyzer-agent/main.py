@@ -253,12 +253,12 @@ with MCPServerAdapter(
         role="Expert Database Validator",
         goal=f"""Validate the extracted schema and table names for {DATABASE_NAME}.
         First attempt MUST use the MSSQL MCP tools, which are {tool_list_str}.
-        If information is incomplete, run a custom T-SQL query against INFORMATION_SCHEMA using the MCP query execution tool.
+        If information is incomplete, run a custom T-SQL query against sys.tables and sys.schemas using the MCP query execution tool.
         Return only JSON in the required format.""",
         backstory=f"""ROLE: SQL Server auditor.
         WORKFLOW:
         1. Always attempt to use MSSQL MCP tools first ({tool_list_str}).
-        2. If they don’t return full details, fallback to INFORMATION_SCHEMA queries through MCP.
+        2. If they don’t return full details, fallback to sys.tables and sys.schemas queries through MCP.
         3. Never invent or assume missing details.
         4. Return results ONLY as structured JSON, no extra text. """,
         tools=mcp_tools,
@@ -274,7 +274,7 @@ with MCPServerAdapter(
 
         RULES:
         1. First, use MCP tools: {tool_list_str}.
-        2. If they don’t give the complete list, fallback to a direct T-SQL query against INFORMATION_SCHEMA using MCP.
+        2. If they don’t give the complete list, fallback to a direct T-SQL query against sys.tables and sys.schemas using MCP.
         3. Never assume or fabricate results.
         4. Output ONLY JSON in this format:
         [
@@ -291,7 +291,7 @@ with MCPServerAdapter(
 
         RULES:
         1. First, use MCP tools: {tool_list_str}.
-        2. If they don’t give the complete list, fallback to direct T-SQL queries against INFORMATION_SCHEMA using MCP.
+        2. If they don’t give the complete list, fallback to direct T-SQL queries against sys.tables and sys.schemas using MCP.
         3. Never assume or fabricate issues.
         4. Output ONLY JSON in this format:
         {{
@@ -327,14 +327,19 @@ with MCPServerAdapter(
     try:
         validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=database_analysis_crew, max_retries=4)
 
+        # Ensure output folder exists
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, "tables.json")
+
         # --- Save Analyst output (tables) into tables.json ---
         if validation_success and analyst_result:
-            with open("tables.json", "w") as f:
+            with open(output_file, "w") as f:
                 tables_json = json.loads(analyst_result)
                 json.dump(tables_json, f, indent=2)
-            print("💾 Saved extracted tables to tables.json")
+            print(f"💾 Saved extracted tables to {output_file}")
         else:
-            print("⚠️ Validation failed hence no tables.json saved.")
+            print(f"⚠️ Validation failed hence no {output_file} saved.")
 
         print_execution_summary(
             validation_result, analyst_result, validation_success, total_attempts
