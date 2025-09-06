@@ -118,11 +118,9 @@ Verify `MssqlMcp.dll` should be created under `02-mcp-server/MssqlMcp/bin/Debug/
 
 ## 🗂️ Step 3: Fetch Table Names from Database
 
-Fetch all table and schema names using the **Schema Analyzer Agent**.
-
 Run the schema analyzer script:
 ```bash
-python 03-sql-schema-basic-analyzer-agent/main.py
+python 03-sql-table-analyzer-agent/main.py
 ```
 
 The agent will:
@@ -153,3 +151,46 @@ If validation fails, the agent automatically retries (up to 3 times) using feedb
 
 <img src="images/step3.png" alt="step-2" width="75%" height="75%"/>
 
+## 🗂️ Step 5: Fetch Relationships from Database
+
+Run the schema analyzer script:
+```bash
+python 05-sql-relationship-analyzer-agent/main.py
+```
+
+The agent will:
+- Connect to the running MCP Server.
+- Use the Database Analyst Agent to extract relationships.
+- Use the Validator Agent to verify the correctness of the extracted schema.
+- Save the results to relationships.json.
+
+Example output:
+```json
+[
+  {
+    "name": "FK__Movies__GenreID__3B75D760",
+    "table": "Movies",
+    "column": "GenreID",
+    "ref_table": "Genres",
+    "ref_column": "GenreID"
+  },
+  {
+    "name": "FK__Reviews__MovieID__3F466844",
+    "table": "Reviews",
+    "column": "MovieID",
+    "ref_table": "Movies",
+    "ref_column": "MovieID"
+  }
+]
+```
+
+Validation Output:
+```json
+{
+  "validation_passed": true,
+  "issues": [],
+  "message": "All expected foreign key relationships exist and are valid for MovieReviews."
+}
+```
+
+If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
