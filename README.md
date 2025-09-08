@@ -151,6 +151,53 @@ If validation fails, the agent automatically retries (up to 3 times) using feedb
 
 <img src="images/step3.png" alt="step-2" width="75%" height="75%"/>
 
+## 🗂️ Step 4: Fetch Schema from Database
+
+Run the schema analyzer script:
+```bash
+python 04-sql-schema-analyzer-agent/main.py
+```
+
+The agent will:
+- Connect to the running MCP Server.
+- Use the Database Analyst Agent to extract column information.
+- Use the Validator Agent to verify the correctness of the extracted column information.
+- Save the results to tablename_schema.json.
+
+Example output:
+```json
+[
+  {
+    "table_name": "Genres",
+    "column_name": "GenreID",
+    "data_type": "int",
+    "length": "4",
+    "is_primary_key": "true",
+    "is_nullable": "false"
+  },
+  {
+    "table_name": "Genres",
+    "column_name": "GenreName",
+    "data_type": "nvarchar",
+    "length": "200",
+    "is_primary_key": "false",
+    "is_nullable": "false"
+  }
+]
+```
+
+Validation Output:
+```json
+{
+  "validation_passed": true,
+  "issues": [],
+  "message": "All expected column information exist and are valid for Genres table of MovieReviews."
+}
+```
+
+If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
+
+
 ## 🗂️ Step 5: Fetch Relationships from Database
 
 Run the schema analyzer script:
@@ -161,8 +208,8 @@ python 05-sql-relationship-analyzer-agent/main.py
 The agent will:
 - Connect to the running MCP Server.
 - Use the Database Analyst Agent to extract relationships.
-- Use the Validator Agent to verify the correctness of the extracted schema.
-- Save the results to relationships.json.
+- Use the Validator Agent to verify the correctness of the extracted relationsships.
+- Save the results to tablename_relationships.json.
 
 Example output:
 ```json
