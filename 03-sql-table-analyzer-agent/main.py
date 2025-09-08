@@ -59,9 +59,9 @@ with MCPServerAdapter(
 
     database_analyst_agent = Agent(
         role="Expert Database Analyst",
-        goal=f"""Extract all schema and table names from {DATABASE_NAME}.
+        goal=f"""Extract all schema and table names from {DATABASE_NAME} DB.
         First attempt MUST use the provided MSSQL MCP tools, which are {tool_list_str}.
-        If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query via the MCP query execution tool.
+        If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query using sys.tables and sys.schemas via the MCP query execution tool.
         Output strictly as JSON (no explanations, no comments). """,
         backstory=f"""ROLE: Expert SQL Server schema extractor.
         WORKFLOW:
@@ -78,14 +78,14 @@ with MCPServerAdapter(
 
     validator_agent = Agent(
         role="Expert Database Validator",
-        goal=f"""Validate the extracted schema and table names for {DATABASE_NAME}.
+        goal=f"""Validate the extracted schema and table names for {DATABASE_NAME} DB.
         First attempt MUST use the MSSQL MCP tools, which are {tool_list_str}.
         If information is incomplete, run a custom T-SQL query against sys.tables and sys.schemas using the MCP query execution tool.
         Return only JSON in the required format.""",
         backstory=f"""ROLE: SQL Server auditor.
         WORKFLOW:
         1. Always attempt to use MSSQL MCP tools first ({tool_list_str}).
-        2. If they don’t return full details, fallback to sys.tables and sys.schemas queries through MCP.
+        2. If they don’t return full details, fallback to executing a direct T-SQL query through MCP.
         3. Never invent or assume missing details.
         4. Return results ONLY as structured JSON, no extra text. """,
         tools=mcp_tools,
@@ -96,7 +96,7 @@ with MCPServerAdapter(
     print("✅ Schema Validator Agent created")
 
     database_analysis_task = Task(
-        description=f"""Query {DATABASE_NAME} and return all schema and table names.
+        description=f"""Query {DATABASE_NAME} DB and return all schema and table names.
 
         RULES:
         1. First, use MCP tools: {tool_list_str}.
@@ -104,7 +104,10 @@ with MCPServerAdapter(
         3. Never assume or fabricate results.
         4. Output ONLY JSON in this format:
         [
-            {{ "schema": "schema_name", "table": "table_name" }}
+            {{ 
+                "schema": "schema_name", 
+                "table": "table_name" 
+            }}
         ] """,
         expected_output="""Strict JSON array of objects with 'schema' and 'table' keys only.""",
         agent=database_analyst_agent,
@@ -112,7 +115,7 @@ with MCPServerAdapter(
     print("✅ Schema Analysis Task configured")
 
     validation_task = Task(
-        description=f"""Validate the schema and table list extracted from {DATABASE_NAME}.
+        description=f"""Validate the schema and table list extracted from {DATABASE_NAME} DB.
 
         RULES:
         1. First, use MCP tools: {tool_list_str}.
@@ -123,7 +126,7 @@ with MCPServerAdapter(
             "validation_passed": true|false,
             "issues": [
                 {{
-                "type": "missing_table|duplicate_table|missing_schema|other",
+                "type": "missing_table|incorrect_table|invalid_table|duplicate_table|missing_schema|other",
                 "table": "TableName",
                 "details": "Explanation of the issue"
                 }}

@@ -4,12 +4,12 @@ SQL Schema Analyzer Agent
 This module implements a multi-agent system for analyzing SQL Server database schemas.
 It uses CrewAI with MSSQL MCP tools to:
 
-1. Extract database schema and table information
-2. Validate the extracted schema information against the database
+1. Extract column information from the database
+2. Validate the extracted column information against the database
 
 Agents:
-- **Database Analyst Agent**: Extracts relationships.
-- **Schema Validator Agent**: Validates extracted relationships for correctness and completeness.
+- **Database Analyst Agent**: Extracts column information.
+- **Schema Validator Agent**: Validates extracted column information for correctness and completeness.
 """
 
 from crewai import LLM, Agent, Task, Crew, Process
@@ -64,9 +64,9 @@ for table in tables:
 
         database_analyst_agent = Agent(
             role="Expert Database Analyst",
-            goal=f"""Extract the table relationships (foreign keys) of {table_name} table from {DATABASE_NAME} DB.
+            goal=f"""Extract column information such as column_name, data_type, length, is_primary_key, is_nullable of {table_name} table from {DATABASE_NAME} DB.
             First attempt MUST use the provided MSSQL MCP tools, which are {tool_list_str}.
-            If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query using sys.foreign_keys and sys.foreign_key_columns via the MCP query execution tool.
+            If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query using sys.tables, sys.columns, sys.types, sys.indexes and sys.index_columns via the MCP query execution tool.
             Output strictly as JSON (no explanations, no comments). """,
             backstory=f"""ROLE: Expert SQL Server schema extractor.
             WORKFLOW:
@@ -83,9 +83,9 @@ for table in tables:
 
         validator_agent = Agent(
             role="Expert Database Validator",
-            goal=f"""Validate the each extracted relationship (foreign key) of {table_name} table from {DATABASE_NAME} DB.
+            goal=f"""Validate the extracted column information of each column of {table_name} table from {DATABASE_NAME} DB.
             First attempt MUST use the MSSQL MCP tools, which are {tool_list_str}.
-            If information is incomplete, run a custom T-SQL query against sys.foreign_keys and sys.foreign_key_columns using the MCP query execution tool.
+            If a tool does not return the required info, THEN and ONLY THEN run a custom T-SQL query (sys.tables, sys.columns, sys.types, sys.indexes and sys.index_columns) via the MCP query execution tool.
             Return only JSON in the required format.""",
             backstory=f"""ROLE: SQL Server auditor.
             WORKFLOW:
@@ -101,48 +101,49 @@ for table in tables:
         print("✅ Schema Validator Agent created")
 
         database_analysis_task = Task(
-            description=f"""Query {table_name} table of {DATABASE_NAME} DB and return all relationships (foreign keys).
+            description=f"""Query {table_name} table of {DATABASE_NAME} DB and return column information such as column_name, data_type, length, is_primary_key, is_nullable.
 
             RULES:
             1. First, use MCP tools: {tool_list_str}.
-            2. If they don’t give the complete list, fallback to a direct T-SQL query against sys.foreign_keys and sys.foreign_key_columns using MCP.
+            2. If they don’t give the complete list, fallback to a direct T-SQL query against sys.tables, sys.columns, sys.types, sys.indexes and sys.index_columns using MCP.
             3. Never assume or fabricate results.
             4. Output ONLY JSON in this format:
             [
-                {{
-                    "name": "constraint_name",
-                    "table": "table_name",
-                    "column": "column_name",
-                    "ref_table": "parent_table_name",
-                    "ref_column": "parent_column_name"
+                {{  
+                    "table_name": "table_name", 
+                    "column_name": "column_name", 
+                    "data_type": "data_type", 
+                    "length": "length", 
+                    "is_primary_key": "is_primary_key", 
+                    "is_nullable": "is_nullable" 
                 }}
             ] """,
-            expected_output="""Strict JSON array of objects with 'name', 'table', 'column', 'ref_table', and 'ref_column' keys.""",
+            expected_output="""Strict JSON array of objects with 'table_name', 'column_name', 'data_type', 'length', 'is_primary_key', 'is_nullable' keys only.""",
             agent=database_analyst_agent,
         )
         print("✅ Schema Analysis Task configured")
 
         validation_task = Task(
-            description=f"""Validate extracted foreign key relationships of {table_name} table from {DATABASE_NAME} DB.
+            description=f"""Validate the extracted column information of each column of {table_name} table from {DATABASE_NAME} DB.
 
             RULES:
             1. First, use MCP tools: {tool_list_str}.
-            2. If they don’t give the complete list, fallback to direct T-SQL queries against sys.foreign_keys and sys.foreign_key_columns using MCP.
+            2. If they don’t give the complete list, fallback to direct T-SQL queries against sys.tables, sys.columns, sys.types, sys.indexes and sys.index_columns using MCP.
             3. Never assume or fabricate issues.
             4. Output ONLY JSON in this format:
             {{
                 "validation_passed": true|false,
                 "issues": [
                     {{
-                    "type": "missing_fk|incorret_fk|invalid_fk|non-existing_fk|duplicate_fk|other",
-                    "name": "FK_Name",
+                    "type": "missing_type|incorrect_type|invalid_type|non-existing_type|duplicate_type|others", // type will be column, type, index, index_column, primary_key, nullable
+                    "name": "name", // name will be column_name, type_name, index_name, index_column_name, primary_key_name, nullable_name
                     "details": "Explanation of the issue"
                     }}
                 ],
                 "message": "<summary string>"
             }}
             """,
-            expected_output="Strict JSON object with validation_passed, issues[], and message keys.",
+            expected_output="Strict JSON object with validation_passed, issues[], and message.",
             agent=validator_agent,
             context=[database_analysis_task],
         )
@@ -164,13 +165,13 @@ for table in tables:
 
             output_dir = "output"
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"{table_name}_relationships.json")
+            output_file = os.path.join(output_dir, f"{table_name}_schema.json")
 
             if validation_success and analyst_result:
                 with open(output_file, "w") as f:
                     tables_json = json.loads(analyst_result)
                     json.dump(tables_json, f, indent=2)
-                print(f"💾 Saved extracted relationships to {output_file}")
+                print(f"💾 Saved extracted column information to {output_file}")
             else:
                 print(f"⚠️ Validation failed hence no {output_file} saved.")
 
