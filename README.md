@@ -241,3 +241,145 @@ Validation Output:
 ```
 
 If validation fails, the agent automatically retries (up to n times) using feedback from the Validator to improve the analysis.
+
+
+## 🗂️ Step 6: Consolidate the Schema
+
+Run the schema consolidator script:
+```bash
+python 06-schema-consolidator/main.py
+```
+
+The agent will:
+- Fetch tables, schema and relationship json files.
+- Consolidate all files into a single file
+
+Example output:
+```json
+{
+  "foreign_keys": [
+    {
+      "name": "FK__Movies__GenreID__3B75D760",
+      "table": "Movies",
+      "column": "GenreID",
+      "ref_table": "Genres",
+      "ref_column": "GenreID"
+    },
+    {
+      "name": "FK__Reviews__MovieID__3F466844",
+      "table": "Reviews",
+      "column": "MovieID",
+      "ref_table": "Movies",
+      "ref_column": "MovieID"
+    }
+  ],
+  "columns": [
+    {
+      "table_name": "Genres",
+      "column_name": "GenreID",
+      "data_type": "int",
+      "length": "4",
+      "is_primary_key": "true",
+      "is_nullable": "false"
+    },
+    {
+      "table_name": "Genres",
+      "column_name": "GenreName",
+      "data_type": "nvarchar",
+      "length": "200",
+      "is_primary_key": "false",
+      "is_nullable": "false"
+    },
+    {
+      "table_name": "Movies",
+      "column_name": "MovieID",
+      "data_type": "int",
+      "length": "4",
+      "is_primary_key": "true",
+      "is_nullable": "false"
+    },
+    {
+      "table_name": "Movies",
+      "column_name": "Title",
+      "data_type": "nvarchar",
+      "length": "510",
+      "is_primary_key": "false",
+      "is_nullable": "false"
+    },
+    {
+      "table_name": "Movies",
+      "column_name": "ReleaseYear",
+      "data_type": "int",
+      "length": "4",
+      "is_primary_key": "false",
+      "is_nullable": "true"
+    }
+    ....
+  ],
+  "tables": [
+    {
+      "schema": "dbo",
+      "table": "Genres"
+    },
+    {
+      "schema": "dbo",
+      "table": "Movies"
+    },
+    {
+      "schema": "dbo",
+      "table": "Reviews"
+    }
+  ]
+}
+```
+
+Output messages:
+✅ Merged Genres_schema.json into columns
+✅ Merged Movies_schema.json into columns
+✅ Merged tables.json into tables
+✅ Merged Reviews_schema.json into columns
+✅ Merged Genres_relationships.json into foreign_keys
+✅ Merged Movies_relationships.json into foreign_keys
+✅ Merged Reviews_relationships.json into foreign_keys
+⚠️ Unknown file type for tasks.json, skipping.
+⚠️ Unknown file type for consolidated.json, skipping.
+
+💾 Consolidated JSON saved to output/consolidated.json
+
+
+## 🗂️ Step 7: Plan tasks for data analysis
+
+Run the task planner agent script:
+```bash
+python 07-data-analyzer-task-planner-agent/main.py
+```
+
+The agent will:
+- Connect to the LLM.
+- Use the consolidated schema json file.
+- Itentify tasks based on schema.
+- Use the Validator Agent to verify the correctness of the tasks.
+- Save the results to tasks.json.
+
+Example output:
+```json
+[
+  "Calculate the number of movies for each GenreName",
+  "Compute average and maximum DurationMinutes for each GenreName",
+  "Count the number of movies released per ReleaseYear",
+  "Retrieve the top 5 movies by DurationMinutes with their Title and ReleaseYear",
+  "Calculate the average Rating and total number of reviews for each MovieID",
+  "Determine the minimum and maximum length of ReviewText across all reviews"
+]
+```
+
+Validation Output:
+```json
+{
+  "validation_passed": true,
+  "issues": [],
+  "message": "All tasks reference valid tables and columns and can be executed against the provided schema."
+}
+```
+
+If validation fails, the agent automatically retries (up to n times) using feedback from the Validator to improve the analysis.
