@@ -9,6 +9,7 @@ from utils.crew_utils import execute_analysis_with_retry, print_execution_summar
 with open("output/consolidated.json") as f:
     schema_data = json.load(f)
 
+RETRIES = Config.get_retry_config()["retry_count"]
 llm_cfg = Config.get_llm()
 
 task_planner_agent = Agent(
@@ -94,7 +95,7 @@ print(f"👥 Crew members: {len(crew.agents)} agents")
 print(f"📝 Total tasks: {len(crew.tasks)} tasks")
 
 try:
-    validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=crew, max_retries=4)
+    validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=crew, max_retries=RETRIES)
 
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)

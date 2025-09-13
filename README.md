@@ -147,7 +147,7 @@ Validation Output:
 }
 ```
 
-If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
+If validation fails, the agent automatically retries (up to n times) using feedback from the Validator to improve the analysis.
 
 <img src="images/step3.png" alt="step-2" width="75%" height="75%"/>
 
@@ -195,7 +195,7 @@ Validation Output:
 }
 ```
 
-If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
+If validation fails, the agent automatically retries (up to n times) using feedback from the Validator to improve the analysis.
 
 
 ## 🗂️ Step 5: Fetch Relationships from Database
@@ -240,4 +240,4 @@ Validation Output:
 }
 ```
 
-If validation fails, the agent automatically retries (up to 3 times) using feedback from the Validator to improve the analysis.
+If validation fails, the agent automatically retries (up to n times) using feedback from the Validator to improve the analysis.

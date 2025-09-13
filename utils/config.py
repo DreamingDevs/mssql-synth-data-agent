@@ -77,3 +77,9 @@ class Config:
                 api_version=os.getenv("AZURE_API_VERSION"),
                 **Config.get_llm_params(),
             )
+
+    @staticmethod
+    def get_retry_config():
+        return {
+            "retry_count": 4
+        }

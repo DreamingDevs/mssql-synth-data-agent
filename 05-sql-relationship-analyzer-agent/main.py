@@ -29,6 +29,7 @@ load_dotenv()
 DATABASE_NAME = os.getenv("DB_NAME")
 MCP_SERVER_PATH = "02-mcp-server/MssqlMcp/bin/Debug/net9.0/MssqlMcp.dll"
 MCP_CONNECTION_TIMEOUT = 60
+RETRIES = Config.get_retry_config()["retry_count"]
 llm_cfg = Config.get_llm()
 
 print("🚀 Starting SQL Schema Analyzer Agent...")
@@ -160,7 +161,7 @@ for table in tables:
         print(f"📝 Total tasks: {len(database_analysis_crew.tasks)} tasks")
 
         try:
-            validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=database_analysis_crew, max_retries=4)
+            validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=database_analysis_crew, max_retries=RETRIES)
 
             output_dir = "output"
             os.makedirs(output_dir, exist_ok=True)
