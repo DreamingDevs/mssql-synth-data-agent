@@ -50,7 +50,7 @@ mcp_server_parameters = StdioServerParameters(
 print("⚙️ MCP Server parameters configured successfully")
 print("🔌 Connecting to MCP Server...")
 
-tables = json.load(open("output/tables.json"))
+tables = json.load(open(f"{OUTPUT_RAW_DIR}/tables.json"))
 for table in tables:
     table_name = table['table']
     print(f"🗂️ Processing table: {table_name}")
