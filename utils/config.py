@@ -79,7 +79,10 @@ class Config:
             )
 
     @staticmethod
-    def get_retry_config():
+    def get_config():
         return {
-            "retry_count": 4
+            "retry_count": 4,
+            "output_raw_dir": "output/raw",
+            "output_tasks_dir": "output/tasks",
+            "output_dir": "output"
         }
