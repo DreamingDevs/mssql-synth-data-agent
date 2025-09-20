@@ -10,6 +10,7 @@ with open("output/consolidated.json") as f:
     schema_data = json.load(f)
 
 RETRIES = Config.get_retry_config()["retry_count"]
+OUTPUT_RAW_DIR = Config.get_config()["output_raw_dir"]
 llm_cfg = Config.get_llm()
 
 task_planner_agent = Agent(
@@ -97,9 +98,8 @@ print(f"📝 Total tasks: {len(crew.tasks)} tasks")
 try:
     validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=crew, max_retries=RETRIES)
 
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "tasks.json")
+    os.makedirs(OUTPUT_RAW_DIR, exist_ok=True)
+    output_file = os.path.join(OUTPUT_RAW_DIR, "tasks.json")
 
     if validation_success and analyst_result:
         with open(output_file, "w") as f:

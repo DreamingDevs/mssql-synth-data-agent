@@ -29,7 +29,8 @@ load_dotenv()
 DATABASE_NAME = os.getenv("DB_NAME")
 MCP_SERVER_PATH = "02-mcp-server/MssqlMcp/bin/Debug/net9.0/MssqlMcp.dll"
 MCP_CONNECTION_TIMEOUT = 60
-RETRIES = Config.get_retry_config()["retry_count"]
+RETRIES = Config.get_config()["retry_count"]
+OUTPUT_RAW_DIR = Config.get_config()["output_raw_dir"]
 llm_cfg = Config.get_llm()
 
 print("🚀 Starting SQL Schema Analyzer Agent...")
@@ -163,9 +164,8 @@ for table in tables:
         try:
             validation_result, analyst_result, validation_success, total_attempts = execute_analysis_with_retry(crew=database_analysis_crew, max_retries=RETRIES)
 
-            output_dir = "output"
-            os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"{table_name}_relationships.json")
+            os.makedirs(OUTPUT_RAW_DIR, exist_ok=True)
+            output_file = os.path.join(OUTPUT_RAW_DIR, f"{table_name}_relationships.json")
 
             if validation_success and analyst_result:
                 with open(output_file, "w") as f:

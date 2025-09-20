@@ -1,8 +1,12 @@
-import os
+import os, sys
 import json
 
-INPUT_DIR = "output"
-OUTPUT_FILE = "output/consolidated.json"
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import Config
+
+OUTPUT_RAW_DIR = Config.get_config()["output_raw_dir"]
+OUTPUT_DIR = Config.get_config()["output_dir"]
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "consolidated_schema.json")
 
 consolidated = {
     "foreign_keys": [],
@@ -22,9 +26,9 @@ def detect_file_type(filename: str):
     return None
 
 # Process all JSON files in input folder
-for filename in os.listdir(INPUT_DIR):
+for filename in os.listdir(OUTPUT_RAW_DIR):
     if filename.endswith(".json"):
-        file_path = os.path.join(INPUT_DIR, filename)
+        file_path = os.path.join(OUTPUT_RAW_DIR, filename)
         with open(file_path, "r") as f:
             try:
                 data = json.load(f)
